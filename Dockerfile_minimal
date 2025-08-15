@@ -1,0 +1,12 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+COPY requirements_minimal.txt .
+RUN pip install -r requirements_minimal.txt
+
+COPY detector_compacto.py .
+
+EXPOSE 8501
+
+CMD ["streamlit", "run", "detector_compacto.py", "--server.address", "0.0.0.0"]

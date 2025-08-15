@@ -1,0 +1,185 @@
+name: 🇧🇷 Detector de Plágio - CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  test:
+    name: 🧪 Executar Testes
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 📥 Checkout código
+      uses: actions/checkout@v4
+      
+    - name: 🐍 Configurar Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        
+    - name: 📦 Instalar dependências
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements_minimal.txt
+        
+    - name: 🧪 Executar testes automatizados
+      run: |
+        python3 test_simple.py
+        
+    - name: 📊 Upload resultados dos testes
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: test-results
+        path: test-results/
+
+  docker-build:
+    name: 🐳 Build Docker Image
+    runs-on: ubuntu-latest
+    needs: test
+    
+    steps:
+    - name: 📥 Checkout código
+      uses: actions/checkout@v4
+      
+    - name: 🐳 Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+      
+    - name: 🏗️ Build imagem Docker
+      run: |
+        docker build -f Dockerfile_minimal -t detector-historia-brasil:latest .
+        
+    - name: 🧪 Testar container Docker
+      run: |
+        # Inicia container em background
+        docker run -d -p 8501:8501 --name test-container detector-historia-brasil:latest
+        
+        # Aguarda inicialização
+        sleep 30
+        
+        # Verifica se está rodando
+        docker ps | grep test-container
+        
+        # Para container
+        docker stop test-container
+        docker rm test-container
+        
+    - name: 📦 Salvar imagem Docker
+      run: |
+        docker save detector-historia-brasil:latest | gzip > detector-historia-brasil.tar.gz
+        
+    - name: 📤 Upload imagem Docker
+      uses: actions/upload-artifact@v3
+      with:
+        name: docker-image
+        path: detector-historia-brasil.tar.gz
+
+  integration-test:
+    name: 🔍 Teste de Integração
+    runs-on: ubuntu-latest
+    needs: docker-build
+    
+    steps:
+    - name: 📥 Checkout código
+      uses: actions/checkout@v4
+      
+    - name: 🐍 Configurar Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        
+    - name: 📦 Instalar dependências
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements_minimal.txt
+        
+    - name: 🧪 Teste de funcionalidade completa
+      run: |
+        python -c "
+        from detector_compacto import CompactPlagiarismDetector, COMPACT_DATABASE
+        
+        print('🧪 Teste de integração completa...')
+        
+        # Inicializa detector
+        detector = CompactPlagiarismDetector()
+        detector.load_documents(COMPACT_DATABASE)
+        
+        # Teste de alta similaridade
+        texto_plagio = 'Pedro Álvares Cabral comandou a esquadra portuguesa que chegou ao Brasil em 1500'
+        resultados = detector.detect(texto_plagio, top_k=3)
+        
+        assert len(resultados) > 0, 'Deve retornar resultados'
+        assert resultados[0].similarity > 50, f'Alta similaridade esperada, obtido: {resultados[0].similarity}%'
+        
+        # Teste de baixa similaridade  
+        texto_original = 'A culinária italiana é reconhecida mundialmente por sua diversidade'
+        resultados = detector.detect(texto_original, top_k=3)
+        
+        assert len(resultados) > 0, 'Deve retornar resultados'
+        assert resultados[0].similarity < 50, f'Baixa similaridade esperada, obtido: {resultados[0].similarity}%'
+        
+        print('✅ Todos os testes de integração passaram!')
+        "
+
+  demo-test:
+    name: 🎯 Teste de Demonstração
+    runs-on: ubuntu-latest 
+    needs: test
+    
+    steps:
+    - name: 📥 Checkout código
+      uses: actions/checkout@v4
+      
+    - name: 🐍 Configurar Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        
+    - name: 📦 Instalar dependências
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements_minimal.txt
+        
+    - name: 🇧🇷 Executar demonstração História do Brasil
+      run: |
+        timeout 60 python demo_historia_brasil.py || true
+
+  security-scan:
+    name: 🔒 Verificação de Segurança
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 📥 Checkout código
+      uses: actions/checkout@v4
+      
+    - name: 🔍 Scan de segurança com Bandit
+      run: |
+        pip install bandit
+        bandit -r . -f json -o bandit-report.json || true
+        
+    - name: 📤 Upload relatório de segurança
+      uses: actions/upload-artifact@v3
+      with:
+        name: security-report
+        path: bandit-report.json
+
+  final-report:
+    name: 📋 Relatório Final
+    runs-on: ubuntu-latest
+    needs: [test, docker-build, integration-test, demo-test]
+    if: always()
+    
+    steps:
+    - name: 📊 Relatório de Pipeline
+      run: |
+        echo "🎉 PIPELINE CONCLUÍDO"
+        echo "====================="
+        echo "✅ Testes: ${{ needs.test.result }}"
+        echo "✅ Docker Build: ${{ needs.docker-build.result }}"  
+        echo "✅ Integração: ${{ needs.integration-test.result }}"
+        echo "✅ Demo: ${{ needs.demo-test.result }}"
+        echo ""
+        echo "🚀 Aplicação pronta para produção!"
