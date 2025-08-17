@@ -1,6 +1,7 @@
 """
 Detector de Plágio - Versão Compacta com Wikipédia
 Integra tudo em um único arquivo: detector + interface + dados da Wikipedia
+Inclui análise léxica (TF-IDF) e semântica (embeddings)
 """
 
 import streamlit as st
@@ -15,6 +16,51 @@ from collections import Counter
 from datetime import datetime
 import json
 import os
+import pickle
+import subprocess
+import sys
+
+# Importações básicas do numpy
+try:
+    import numpy as np
+except ImportError:
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "numpy"])
+    import numpy as np
+
+# Importações opcionais para análise semântica - importação dinâmica
+SEMANTIC_AVAILABLE = False
+
+def try_import_semantic_dependencies():
+    """Tenta importar dependências semânticas dinamicamente"""
+    global SEMANTIC_AVAILABLE
+    try:
+        from sentence_transformers import SentenceTransformer
+        import torch
+        SEMANTIC_AVAILABLE = True
+        print("✅ Dependências semânticas carregadas")
+        return True
+    except ImportError as e:
+        print("📦 Instalando dependências semânticas...")
+        
+        try:
+            # Instala automaticamente as dependências necessárias
+            packages = ['sentence-transformers', 'torch', 'numpy']
+            for package in packages:
+                print(f"  Instalando {package}...")
+                subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+            
+            # Tenta importar novamente após instalação
+            from sentence_transformers import SentenceTransformer
+            import torch
+            SEMANTIC_AVAILABLE = True
+            print("✅ Dependências semânticas instaladas e carregadas!")
+            return True
+            
+        except Exception as install_error:
+            print(f"❌ Erro na instalação automática: {install_error}")
+            print("🔄 Usando apenas análise léxica...")
+            SEMANTIC_AVAILABLE = False
+            return False
 
 
 @dataclass
@@ -142,6 +188,118 @@ class CompactPlagiarismDetector:
                 document_content=doc['content'][:300] + "..." if len(doc['content']) > 300 else doc['content'],
                 similarity=round(similarity * 100, 2),
                 matched_segments=common_phrases
+            )
+            results.append(result)
+        
+        # Ordena e retorna
+        results.sort(key=lambda x: x.similarity, reverse=True)
+        return results[:top_k]
+
+
+class SemanticPlagiarismDetector:
+    """Detector de plágio usando análise semântica com embeddings"""
+    
+    def __init__(self, model_name: str = 'paraphrase-multilingual-MiniLM-L12-v2'):
+        """Inicializa o detector semântico"""
+        self.model_name = model_name
+        self.model = None
+        self.documents = []
+        self.document_embeddings = None
+        self.cache_file = 'embeddings_cache.pkl'
+        
+    def _load_model(self):
+        """Carrega o modelo de embeddings"""
+        # Tenta importar e carregar as dependências
+        if not try_import_semantic_dependencies():
+            raise ImportError("Dependências semânticas não disponíveis")
+            
+        if self.model is None:
+            try:
+                from sentence_transformers import SentenceTransformer
+                self.model = SentenceTransformer(self.model_name)
+                print(f"✅ Modelo {self.model_name} carregado com sucesso")
+            except Exception as e:
+                print(f"❌ Erro ao carregar modelo: {e}")
+                # Fallback para modelo menor
+                try:
+                    from sentence_transformers import SentenceTransformer
+                    self.model = SentenceTransformer('paraphrase-multilingual-mpnet-base-v2')
+                    print("✅ Modelo fallback carregado")
+                except:
+                    raise Exception("Não foi possível carregar nenhum modelo de embeddings")
+    
+    def load_documents(self, documents: List[Dict[str, str]]):
+        """Carrega documentos e gera embeddings"""
+        self.documents = documents
+        self._load_model()
+        
+        # Verifica se existe cache
+        if os.path.exists(self.cache_file):
+            try:
+                with open(self.cache_file, 'rb') as f:
+                    cached_data = pickle.load(f)
+                
+                # Verifica se o cache é válido (mesmo número de documentos)
+                if len(cached_data.get('embeddings', [])) == len(documents):
+                    self.document_embeddings = cached_data['embeddings']
+                    print(f"✅ Embeddings carregados do cache ({len(documents)} documentos)")
+                    return
+            except Exception as e:
+                print(f"⚠️ Erro ao carregar cache: {e}")
+        
+        # Gera novos embeddings
+        print(f"🔄 Gerando embeddings para {len(documents)} documentos...")
+        texts = [doc['content'] for doc in documents]
+        
+        # Processa em lotes para economizar memória
+        batch_size = 32
+        embeddings = []
+        
+        for i in range(0, len(texts), batch_size):
+            batch = texts[i:i + batch_size]
+            batch_embeddings = self.model.encode(batch, convert_to_tensor=False, normalize_embeddings=True)
+            embeddings.extend(batch_embeddings)
+            print(f"  Processados {min(i + batch_size, len(texts))}/{len(texts)} documentos")
+        
+        self.document_embeddings = np.array(embeddings)
+        
+        # Salva no cache
+        try:
+            with open(self.cache_file, 'wb') as f:
+                pickle.dump({'embeddings': self.document_embeddings}, f)
+            print(f"💾 Embeddings salvos no cache")
+        except Exception as e:
+            print(f"⚠️ Erro ao salvar cache: {e}")
+    
+    def detect_semantic(self, text: str, top_k: int = 5) -> List[SimilarityResult]:
+        """Detecta plágio usando análise semântica"""
+        if not self.documents or self.document_embeddings is None:
+            return []
+        
+        if self.model is None:
+            self._load_model()
+        
+        # Gera embedding do texto de entrada
+        query_embedding = self.model.encode([text], convert_to_tensor=False, normalize_embeddings=True)[0]
+        
+        # Calcula similaridades
+        similarities = np.dot(self.document_embeddings, query_embedding)
+        
+        # Cria resultados
+        results = []
+        for i, similarity in enumerate(similarities):
+            doc = self.documents[i]
+            
+            # Encontra segmentos mais similares (aproximação)
+            sentences = text.split('.')[:3]  # Primeiras 3 frases
+            matched_segments = [s.strip() for s in sentences if len(s.strip()) > 10][:3]
+            
+            result = SimilarityResult(
+                document_id=doc['id'],
+                document_title=doc['title'],
+                document_content=doc['content'][:300] + "..." if len(doc['content']) > 300 else doc['content'],
+                similarity=round(float(similarity) * 100, 2),
+                matched_segments=matched_segments
             )
             results.append(result)
         
@@ -339,10 +497,11 @@ def main():
     st.markdown('<h1 class="main-title">🔍 Detector de Plágio</h1>', unsafe_allow_html=True)
     st.markdown("**Detecte similaridades em textos de forma simples e eficaz**")
     
-    # Inicializa detector
+    # Inicializa detectores
     @st.cache_resource
-    def load_detector():
-        detector = CompactPlagiarismDetector()
+    def load_detectors():
+        lexical_detector = CompactPlagiarismDetector()
+        semantic_detector = None
         
         # Tenta carregar da Wikipedia primeiro
         try:
@@ -350,20 +509,40 @@ def main():
                 wiki_docs = load_wikipedia_documents()
                 
             if wiki_docs:
-                detector.load_documents(wiki_docs)
+                lexical_detector.load_documents(wiki_docs)
+                
+                # Tenta carregar detector semântico
+                try:
+                    semantic_detector = SemanticPlagiarismDetector()
+                    with st.spinner("🧠 Gerando embeddings semânticos..."):
+                        semantic_detector.load_documents(wiki_docs)
+                    st.success("✅ Detector semântico carregado!")
+                except Exception as e:
+                    st.warning(f"⚠️ Detector semântico não disponível: {e}")
+                    semantic_detector = None
+                
                 st.session_state.database_source = "Wikipedia"
                 st.session_state.documents = wiki_docs
-                return detector
-        except:
-            pass
+                return lexical_detector, semantic_detector
+        except Exception as e:
+            st.warning(f"⚠️ Erro ao carregar da Wikipedia: {e}")
         
         # Fallback para dados locais
-        detector.load_documents(COMPACT_DATABASE)
+        lexical_detector.load_documents(COMPACT_DATABASE)
+        
+        try:
+            semantic_detector = SemanticPlagiarismDetector()
+            semantic_detector.load_documents(COMPACT_DATABASE)
+            st.success("✅ Detector semântico carregado com dados locais!")
+        except Exception as e:
+            st.warning(f"⚠️ Detector semântico não disponível: {e}")
+            semantic_detector = None
+            
         st.session_state.database_source = "Local"
         st.session_state.documents = COMPACT_DATABASE
-        return detector
-    
-    detector = load_detector()
+        return lexical_detector, semantic_detector
+
+    lexical_detector, semantic_detector = load_detectors()
     
     # Sidebar
     with st.sidebar:
@@ -475,82 +654,136 @@ def main():
         placeholder="Digite ou cole o texto que deseja verificar..."
     )
     
-    # Botões
-    col_btn1, col_btn2 = st.columns(2)
-    
-    with col_btn1:
-        analyze_btn = st.button("🔍 Analisar", type="primary")
-    
-    with col_btn2:
-        if st.button("📋 Exemplo"):
-            st.session_state.example = "Pedro Álvares Cabral comandou a esquadra portuguesa que chegou ao Brasil em 22 de abril de 1500, marcando o início da colonização."
-            st.rerun()
+    # Botão de exemplo
+    if st.button("📋 Usar Exemplo"):
+        st.session_state.example = "Pedro Álvares Cabral comandou a esquadra portuguesa que chegou ao Brasil em 22 de abril de 1500, marcando o início da colonização portuguesa. A expedição de Cabral foi parte do esforço português para estabelecer rotas comerciais com as Índias."
+        st.rerun()
     
     if 'example' in st.session_state:
         text_input = st.session_state.example
         del st.session_state.example
     
-    # Análise
-    if analyze_btn and text_input.strip():
-        with st.spinner("Analisando..."):
-            results = detector.detect(text_input)
+    # Abas para diferentes tipos de análise
+    if text_input.strip():
+        tab1, tab2 = st.tabs(["🔤 Análise Léxica (TF-IDF)", "🧠 Análise Semântica (Embeddings)"])
         
-        if results:
-            st.success("✅ Análise concluída!")
+        with tab1:
+            st.subheader("📊 Análise Léxica")
+            st.caption("Compara palavras e frases exatas usando TF-IDF e n-gramas")
             
-            # Métricas principais
-            max_score = max(r.similarity for r in results)
-            risk_text, risk_color = get_risk_level(max_score)
-            
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                st.metric("Maior Similaridade", f"{max_score}%")
-            
-            with col2:
-                st.markdown(f'<div style="color: {risk_color}"><strong>{risk_text}</strong></div>', 
-                           unsafe_allow_html=True)
-            
-            with col3:
-                matches = sum(1 for r in results if r.matched_segments)
-                st.metric("Documentos com Matches", matches)
-            
-            # Gráfico simples
-            if results:
-                chart_data = pd.DataFrame([
-                    {'Documento': r.document_title, 'Similaridade': r.similarity} 
-                    for r in results
-                ])
-                st.bar_chart(chart_data.set_index('Documento'))
-            
-            # Resultados detalhados
-            st.subheader("📋 Resultados Detalhados")
-            
-            for i, result in enumerate(results, 1):
-                risk_text, risk_color = get_risk_level(result.similarity)
+            if st.button("🔍 Analisar Léxico", type="primary", key="lexical_btn"):
+                with st.spinner("Analisando similaridade léxica..."):
+                    lexical_results = lexical_detector.detect(text_input)
                 
-                with st.expander(f"#{i} - {result.document_title} ({result.similarity}%)", 
-                               expanded=(i <= 2)):
+                display_results(lexical_results, "Léxica", "🔤")
+        
+        with tab2:
+            st.subheader("🧠 Análise Semântica")
+            st.caption("Compara significado usando embeddings multilíngues")
+            
+            if st.button("🧠 Analisar Semântico", type="primary", key="semantic_btn"):
+                # Tenta carregar detector semântico se não estiver disponível
+                if semantic_detector is None:
+                    with st.spinner("📦 Preparando análise semântica..."):
+                        try:
+                            temp_semantic_detector = SemanticPlagiarismDetector()
+                            documents = st.session_state.get('documents', COMPACT_DATABASE)
+                            temp_semantic_detector.load_documents(documents)
+                            
+                            with st.spinner("🧠 Analisando similaridade semântica..."):
+                                semantic_results = temp_semantic_detector.detect_semantic(text_input)
+                            
+                            display_results(semantic_results, "Semântica", "🧠")
+                            
+                        except Exception as e:
+                            st.error(f"❌ Erro na análise semântica: {e}")
+                            st.info("💡 Instalando dependências automaticamente...")
+                            # A instalação automática já foi configurada nas importações
+                            st.rerun()
+                else:
+                    with st.spinner("🧠 Analisando similaridade semântica..."):
+                        semantic_results = semantic_detector.detect_semantic(text_input)
                     
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        st.metric("Similaridade", f"{result.similarity}%")
-                        st.markdown(f"**Status:** {risk_text}")
-                    
-                    with col2:
-                        st.metric("Frases Encontradas", len(result.matched_segments))
-                    
-                    st.write("**Conteúdo:**")
-                    st.write(result.document_content)
-                    
-                    if result.matched_segments:
-                        st.write("**Frases Similares:**")
-                        for segment in result.matched_segments:
-                            st.code(segment)
+                    display_results(semantic_results, "Semântica", "🧠")
+    
+    else:
+        st.info("💡 Digite um texto acima para começar a análise")
+
+
+def display_results(results: List[SimilarityResult], analysis_type: str, icon: str):
+    """Exibe os resultados da análise"""
+    if not results:
+        st.warning("Nenhum resultado encontrado")
+        return
+    
+    # Gera chave única baseada no tipo de análise e hash dos resultados
+    results_hash = str(hash(str([r.similarity for r in results])))
+    unique_key = f"{analysis_type.lower()}_{results_hash}"
+    
+    st.success(f"✅ Análise {analysis_type} concluída!")
+    
+    # Métricas principais
+    max_score = max(r.similarity for r in results)
+    risk_text, risk_color = get_risk_level(max_score)
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.metric("Maior Similaridade", f"{max_score}%")
+    
+    with col2:
+        st.markdown(f'<div style="color: {risk_color}"><strong>{risk_text}</strong></div>', 
+                   unsafe_allow_html=True)
+    
+    with col3:
+        matches = sum(1 for r in results if r.matched_segments)
+        st.metric("Documentos com Matches", matches)
+    
+    # Gráfico de barras simples
+    df = pd.DataFrame([
+        {"Documento": r.document_title[:30] + "..." if len(r.document_title) > 30 else r.document_title, 
+         "Similaridade": r.similarity} 
+        for r in results[:10]
+    ])
+    
+    st.bar_chart(df.set_index("Documento"))
+    
+    # Resultados detalhados
+    st.subheader(f"{icon} Resultados Detalhados")
+    
+    for i, result in enumerate(results, 1):
+        with st.expander(f"#{i} - {result.document_title} ({result.similarity}%)"):
+            
+            # Informações do documento
+            col_info1, col_info2 = st.columns(2)
+            
+            with col_info1:
+                st.markdown(f"**📊 Similaridade:** {result.similarity}%")
+                st.markdown(f"**📄 Documento:** {result.document_title}")
+            
+            with col_info2:
+                if hasattr(result, 'url') and result.document_id in [doc.get('url', '') for doc in st.session_state.get('documents', [])]:
+                    # Encontra URL do documento
+                    doc_url = next((doc.get('url', '') for doc in st.session_state.get('documents', []) 
+                                  if doc['id'] == result.document_id), '')
+                    if doc_url:
+                        st.markdown(f"**🔗 Link:** [Wikipedia]({doc_url})")
+                
+                if result.matched_segments:
+                    st.markdown(f"**🎯 Segmentos:** {len(result.matched_segments)}")
+            
+            # Conteúdo
+            st.markdown("**📖 Conteúdo:**")
+            st.text(result.document_content)
+            
+            # Segmentos similares
+            if result.matched_segments:
+                st.markdown("**🎯 Segmentos Similares:**")
+                for segment in result.matched_segments[:3]:
+                    st.code(segment)
             
             # Download
-            if st.button("💾 Baixar Resultados CSV"):
+            if st.button("💾 Baixar Resultados CSV", key=f"download_{unique_key}"):
                 df = pd.DataFrame([
                     {
                         'Documento': r.document_title,
@@ -563,19 +796,13 @@ def main():
                 st.download_button(
                     "📄 Download CSV",
                     csv,
-                    f"analise_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                    "text/csv"
+                    f"analise_{analysis_type.lower()}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    "text/csv",
+                    key=f"download_csv_{unique_key}"
                 )
-        
-        else:
-            st.warning("Nenhuma similaridade significativa encontrada.")
-    
-    elif analyze_btn:
-        st.warning("Por favor, insira um texto para análise.")
-    
     # Footer
     st.markdown("---")
-    st.markdown("**Detector de Plágio Compacto** - Versão simplificada para demonstração")
+    st.markdown("**Detector de Plágio Compacto** - Versões Léxica e Semântica")
 
 
 if __name__ == "__main__":

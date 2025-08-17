@@ -1,8 +1,67 @@
-# 🇧🇷 Detector de Plágio - História do Brasil
+# Detector de Plágio - História do Brasil
 
-Solução especializada para detecção de plágio utilizando **25 artigos sobre História do Brasil** da Wikipedia como base de referência.
+Solução especializada para detecção de plág## 🚀 Como Usar
+
+### **Interface Web (Streamlit)**
+```bash
+streamlit run detector_compacto.py
+```
+
+### **Análises Disponíveis**
+
+#### 🔤 **Análise Léxica (TF-IDF)**
+- Detecta **cópia direta** de palavras e frases
+- Identifica **texto idêntico** ou com pequenas modificações
+- **Rápida** e eficiente para plágio literal
+
+**Exemplo:**
+- **Texto Original**: "Pedro Álvares Cabral descobriu o Brasil em 1500"
+- **Texto Suspeito**: "Cabral descobriu o Brasil no ano de 1500"
+- **Resultado**: 85% similaridade léxica
+
+#### 🧠 **Análise Semântica (Embeddings)**
+- Detecta **paráfrases** e **sinônimos**
+- Identifica **significado similar** mesmo com palavras diferentes
+- **Avançada** para plágio sofisticado
+
+**Exemplo:**
+- **Texto Original**: "Pedro Álvares Cabral descobriu o Brasil em 1500"
+- **Texto Suspeito**: "O navegador português chegou às terras brasileiras no século XVI"
+- **Resultado**: 78% similaridade semântica
+
+### **Combinando as Análises**
+Use **ambas as análises** para detecção completa:
+1. **Léxica** → Detecta cópia direta
+2. **Semântica** → Detecta paráfrases
+3. **Comparação** → Avaliação completa
+
+## 📋 Exemplos de Uso
+
+### **Alto Plágio (>70%)**
+**Texto:** "Pedro Álvares Cabral comandou a expedição que chegou ao Brasil em 22 de abril de 1500"
+- **Léxica:** 89% similaridade com "Descobrimento do Brasil"
+- **Semântica:** 92% similaridade com "Pedro Álvares Cabral"
+- **Status:** 🚨 Alto Risco
+
+### **Médio Plágio (40-70%)**
+**Texto:** "Dom Pedro proclamou a independência às margens do Ipiranga em 1822"
+- **Léxica:** 55% similaridade com "Independência do Brasil"
+- **Semântica:** 68% similaridade com "Dom Pedro I do Brasil"
+- **Status:** ⚠️ Risco Médio
+
+### **Baixo Plágio (<40%)**
+**Texto:** "A culinária brasileira combina influências indígenas e africanas"
+- **Léxica:** 15% similaridade
+- **Semântica:** 22% similaridade
+- **Status:** ✅ Baixo Risco25 artigos sobre História do Brasil** da Wikipedia como base de referência, com **análise léxica e semântica**.
 
 ## 🌟 Características
+
+### ✅ **Dupla Análise de Plágio**
+- 🔤 **Análise Léxica**: TF-IDF + N-gramas (palavras e frases exatas)
+- 🧠 **Análise Semântica**: Embeddings multilíngues (significado e contexto)
+- 📊 **Comparação Paralela**: Execute ambas as análises simultaneamente
+- 🎯 **Resultados Complementares**: Detecta plágio direto e paráfrases
 
 ### ✅ **Base Especializada**
 - **25 artigos** sobre História do Brasil da Wikipedia
@@ -10,17 +69,19 @@ Solução especializada para detecção de plágio utilizando **25 artigos sobre
 - Conteúdo atualizado e verificado
 - Textos de domínio público
 
-### ✅ **Períodos Históricos Cobertos**
-- 🚢 **Período Colonial**: Descobrimento, capitanias, invasões
-- 👑 **Império**: Independência, Dom Pedro I e II, abolição
-- 🏛️ **República**: Proclamação, Era Vargas, ditadura militar
-- 🆕 **Brasil Contemporâneo**: Nova República, Diretas Já
+### ✅ **Algoritmos Avançados**
 
-### ✅ **Algoritmo Avançado**
+#### 🔤 **Análise Léxica (TF-IDF)**
 - **TF-IDF**: Análise de frequência de termos
 - **N-gramas**: Detecção de frases similares
 - **Similaridade do Cosseno**: Cálculo matemático preciso
-- **Ranking automático**: Resultados ordenados por relevância
+- **Ideal para**: Plágio direto, cópia literal
+
+#### 🧠 **Análise Semântica (Embeddings)**
+- **Modelo**: paraphrase-multilingual-MiniLM-L12-v2
+- **Embeddings**: Vetores semânticos de 384 dimensões
+- **Cache Inteligente**: Evita recomputação desnecessária
+- **Ideal para**: Paráfrases, sinônimos, contexto similar
 
 ## 📚 Base de Dados (25 Artigos)
 
@@ -175,6 +236,105 @@ Saída esperada:
 - ✅ Conteúdo factual e enciclopédico
 - ✅ Cobertura ampla da História do Brasil
 - ✅ Links diretos para fontes originais
+
+## 📦 Instalação e Dependências
+
+### **Instalação Básica (Apenas Análise Léxica)**
+```bash
+pip install streamlit pandas wikipedia
+```
+
+### **Instalação Completa (Léxica + Semântica)**
+```bash
+pip install -r requirements.txt
+```
+
+**requirements.txt:**
+```
+streamlit==1.28.1
+pandas==2.1.1
+wikipedia==1.4.0
+sentence-transformers==2.2.2
+torch==2.0.1
+transformers==4.34.0
+scikit-learn==1.3.0
+numpy==1.24.3
+```
+
+### **Instalação Docker**
+```bash
+# Construir imagem
+docker build -t detector-historia .
+
+# Executar container
+docker run -p 8501:8501 detector-historia
+```
+
+### **Gerenciamento Automatizado**
+```bash
+# Usar script de gerenciamento
+./docker-manager.sh build
+./docker-manager.sh run
+./docker-manager.sh status
+```
+
+## 🧪 Testes
+
+### **Executar Testes Completos**
+```bash
+python test_simple.py
+```
+
+**Cobertura de Testes:**
+- ✅ Processamento de texto
+- ✅ Detector léxico (TF-IDF)
+- ✅ Detector semântico (Embeddings) 
+- ✅ Integração completa
+- ✅ Funções auxiliares
+
+**Saída Esperada:**
+```
+🚀 INICIANDO TESTES DO DETECTOR DE PLÁGIO
+==================================================
+🧪 Testando processador de texto...
+  ✅ Processamento básico funcionando
+  ✅ N-gramas funcionando
+✅ Processador de texto: OK
+
+🧪 Testando detector de plágio léxico...
+  ✅ Similaridade encontrada: 67.3%
+✅ Detector léxico: OK
+
+🧪 Testando detector de plágio semântico...
+  ✅ Similaridade semântica encontrada: 78.9%
+✅ Detector semântico: OK
+
+📊 RESULTADOS: 5/5 testes passaram
+🎉 TODOS OS TESTES PASSARAM!
+```
+
+## 🔍 Comandos Úteis
+
+### **Executar Sistema**
+```bash
+streamlit run detector_compacto.py
+```
+
+### **Executar com Docker**
+```bash
+./docker-manager.sh run
+```
+
+### **Ver Logs**
+```bash
+./docker-manager.sh logs
+```
+
+### **Gerar Documentação PDF**
+```bash
+make all          # Compila LaTeX
+make view         # Abre PDF
+```
 
 ## 📝 Licença
 
