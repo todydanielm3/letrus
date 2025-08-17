@@ -330,11 +330,6 @@ streamlit run detector_compacto.py
 ./docker-manager.sh logs
 ```
 
-### **Gerar Documentação PDF**
-```bash
-make all          # Compila LaTeX
-make view         # Abre PDF
-```
 
 ## 📝 Licença
 
