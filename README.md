@@ -1,7 +1,5 @@
 # Detector de Plágio - História do Brasil
 
-Solução especializada para detecção de plág## 🚀 Como Usar
-
 ### **Interface Web (Streamlit)**
 ```bash
 streamlit run detector_compacto.py
